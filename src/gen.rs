@@ -1,22 +1,39 @@
 use proc_macro2::TokenStream;
-use quote::quote_spanned;
+use quote::{quote, quote_spanned};
+use syn::{spanned::Spanned, Ident, Fields, Type, ItemStruct};
 
-use crate::parse::ParseInfo;
-
-pub fn generate(input: ParseInfo) -> TokenStream
+pub fn generate(input: ItemStruct) -> TokenStream
 {
-    let name = input.name;
-    let inner_type = input.inner_type;
+    let name: Ident = input.ident.clone();
+    let fields = &input.fields;
 
-    quote_spanned! { name.span() =>
+    let parsed_type: Option<Type> = match fields {
+        Fields::Unnamed(un) => 
+            if un.unnamed.len() != 1 {
+                None
+            }
+            else {
+                Some(un.unnamed[0].ty.clone())
+            },
+        _ => None
+    };
+
+    let inner_type = match parsed_type {
+        Some(pt) => pt,
+        None => return quote! {
+            compile_error!(r#"IdLike can only be derived for single member tuple structs"#);
+        }
+    };
+
+    quote_spanned! { input.span() =>
         impl nicole::IdLike for #name
         {
-            fn null(&self) -> Self { Self(0.wrapping_sub(1)) }
+            fn null() -> Self { Self((0 as #inner_type).wrapping_sub(1)) }
         }
 
-        impl Into<usize> for #name
+        impl From<#name> for usize
         {
-            fn into(self) -> usize { self.0 as usize }
+            fn from(x: #name) -> usize { x.0 as usize }
         }
 
         impl From<usize> for #name
